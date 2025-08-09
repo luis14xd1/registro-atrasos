@@ -1,0 +1,336 @@
+<!DOCTYPE html> 
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Registro y Filtro de Atrasos con exportación XLSX</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    max-width: 750px;
+    margin: 20px auto;
+  }
+  label, select, input, button {
+    display: block;
+    margin: 10px 0;
+    font-size: 1rem;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 25px;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+  }
+  th {
+    background: #f2f2f2;
+  }
+  .filtros {
+    padding: 15px;
+    background: #fafafa;
+    border: 1px solid #ddd;
+    margin-top: 30px;
+  }
+</style>
+</head>
+<body>
+
+<h2>REGISTRO ASISTENCIA - UNIDAD EDUCATIVA FISCAL PORTOVIEJO</h2>
+
+<!-- Botón para cargar estudiantes -->
+<label for="archivoEstudiantes">Cargar listado de estudiantes (Excel o CSV):</label>
+<input type="file" id="archivoEstudiantes" accept=".xlsx,.xls,.csv" />
+
+<form id="formRegistro">
+  <div>
+    <label for="filtroNivelEstudiante">Filtrar estudiantes por Nivel (Curso):</label>
+    <select id="filtroNivelEstudiante">
+      <option value="">Todos</option>
+    </select>
+  </div>
+
+  <div>
+    <label for="filtroParaleloEstudiante">Filtrar estudiantes por Paralelo:</label>
+    <select id="filtroParaleloEstudiante">
+      <option value="">Todos</option>
+    </select>
+  </div>
+
+  <label for="selectEstudiante">Estudiante:</label>
+  <select id="selectEstudiante" required>
+    <option value="">-- Seleccione un estudiante --</option>
+  </select>
+
+  <label for="fechaAtraso">Fecha de atraso:</label>
+  <input type="date" id="fechaAtraso" required />
+
+  <label for="horaAtraso">Hora de atraso:</label>
+  <input type="time" id="horaAtraso" required />
+
+  <button type="submit">Registrar atraso</button>
+</form>
+
+<div class="filtros">
+  <h3>Filtros para búsqueda de atrasos</h3>
+  <label for="filtroNombre">Nombre:</label>
+  <input type="text" id="filtroNombre" placeholder="Filtrar por nombre..." />
+
+  <label for="filtroNivel">Nivel (Curso):</label>
+  <select id="filtroNivel">
+    <option value="">Todos</option>
+  </select>
+
+  <label for="filtroParalelo">Paralelo:</label>
+  <select id="filtroParalelo">
+    <option value="">Todos</option>
+  </select>
+
+  <button id="btnExportarXLSX" style="margin-top: 15px;">Exportar atrasos filtrados a XLSX</button>
+</div>
+
+<table id="tablaAtrasos">
+  <thead>
+    <tr>
+      <th>Estudiante</th>
+      <th>Nivel (Curso)</th>
+      <th>Paralelo</th>
+      <th>Fecha</th>
+      <th>Hora</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<!-- Incluimos SheetJS -->
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+<script>
+// Lista vacía (será llenada desde archivo o localStorage)
+let estudiantes = [];
+let atrasos = [];
+
+// Referencias DOM
+const filtroNivelEstudiante = document.getElementById("filtroNivelEstudiante");
+const filtroParaleloEstudiante = document.getElementById("filtroParaleloEstudiante");
+const selectEstudiante = document.getElementById("selectEstudiante");
+const filtroNombre = document.getElementById("filtroNombre");
+const filtroNivel = document.getElementById("filtroNivel");
+const filtroParalelo = document.getElementById("filtroParalelo");
+const tbody = document.querySelector("#tablaAtrasos tbody");
+const formRegistro = document.getElementById("formRegistro");
+const btnExportarXLSX = document.getElementById("btnExportarXLSX");
+const inputArchivoEstudiantes = document.getElementById("archivoEstudiantes");
+
+// Función para cargar lista de estudiantes desde archivo
+inputArchivoEstudiantes.addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+
+  reader.onload = function(evt) {
+    const data = evt.target.result;
+    const workbook = XLSX.read(data, { type: 'binary' });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(firstSheet);
+
+    estudiantes = rows.map(row => ({
+      nombre: String(row.nombre || row.Nombre || "").trim(),
+      nivel: String(row.nivel || row.Nivel || "").trim(),
+      paralelo: String(row.paralelo || row.Paralelo || "").trim()
+    })).filter(e => e.nombre && e.nivel && e.paralelo);
+
+    localStorage.setItem("estudiantes", JSON.stringify(estudiantes));
+
+    cargarFiltrosEstudiantes();
+    cargarEstudiantes("", "");
+    cargarFiltrosBusqueda();
+    mostrarTabla();
+    alert("Lista de estudiantes cargada correctamente.");
+  };
+
+  reader.readAsBinaryString(file);
+});
+
+// Cargar filtros para selección estudiantes
+function cargarFiltrosEstudiantes() {
+  filtroNivelEstudiante.innerHTML = '<option value="">Todos</option>';
+  filtroParaleloEstudiante.innerHTML = '<option value="">Todos</option>';
+
+  const nivelesUnicos = [...new Set(estudiantes.map(e => e.nivel))].sort();
+  const paralelosUnicos = [...new Set(estudiantes.map(e => e.paralelo))].sort();
+
+  nivelesUnicos.forEach(nivel => {
+    const option = document.createElement("option");
+    option.value = nivel;
+    option.textContent = nivel;
+    filtroNivelEstudiante.appendChild(option);
+  });
+
+  paralelosUnicos.forEach(paralelo => {
+    const option = document.createElement("option");
+    option.value = paralelo;
+    option.textContent = paralelo;
+    filtroParaleloEstudiante.appendChild(option);
+  });
+}
+
+function cargarEstudiantes(filtroNivel, filtroParalelo) {
+  selectEstudiante.innerHTML = '<option value="">-- Seleccione un estudiante --</option>';
+  estudiantes
+    .filter(e => (filtroNivel === "" || e.nivel === filtroNivel) &&
+                 (filtroParalelo === "" || e.paralelo === filtroParalelo))
+    .forEach(e => {
+      const option = document.createElement("option");
+      option.value = e.nombre;
+      option.textContent = `${e.nombre} (Nivel: ${e.nivel}, Paralelo: ${e.paralelo})`;
+      selectEstudiante.appendChild(option);
+    });
+}
+
+function cargarFiltrosBusqueda() {
+  filtroNivel.innerHTML = '<option value="">Todos</option>';
+  filtroParalelo.innerHTML = '<option value="">Todos</option>';
+
+  const nivelesUnicos = [...new Set(estudiantes.map(e => e.nivel))].sort();
+  const paralelosUnicos = [...new Set(estudiantes.map(e => e.paralelo))].sort();
+
+  nivelesUnicos.forEach(nivel => {
+    const option = document.createElement("option");
+    option.value = nivel;
+    option.textContent = nivel;
+    filtroNivel.appendChild(option);
+  });
+
+  paralelosUnicos.forEach(paralelo => {
+    const option = document.createElement("option");
+    option.value = paralelo;
+    option.textContent = paralelo;
+    filtroParalelo.appendChild(option);
+  });
+}
+
+function obtenerEstudiante(nombre) {
+  return estudiantes.find(e => e.nombre === nombre);
+}
+
+function mostrarTabla() {
+  const filtroN = filtroNombre.value.trim().toLowerCase();
+  const filtroL = filtroNivel.value;
+  const filtroP = filtroParalelo.value;
+  tbody.innerHTML = "";
+
+  atrasos
+    .filter(a => {
+      const est = obtenerEstudiante(a.estudiante);
+      if (!est) return false;
+      const cumpleNombre = est.nombre.toLowerCase().includes(filtroN);
+      const cumpleNivel = filtroL === "" || est.nivel === filtroL;
+      const cumpleParalelo = filtroP === "" || est.paralelo === filtroP;
+      return cumpleNombre && cumpleNivel && cumpleParalelo;
+    })
+    .forEach(({ estudiante, fecha, hora }) => {
+      const est = obtenerEstudiante(estudiante);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${est.nombre}</td>
+        <td>${est.nivel}</td>
+        <td>${est.paralelo}</td>
+        <td>${fecha}</td>
+        <td>${hora}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+}
+
+function guardarAtrasosLocal() {
+  localStorage.setItem("atrasos", JSON.stringify(atrasos));
+}
+
+function cargarAtrasosLocal() {
+  const data = localStorage.getItem("atrasos");
+  if (data) atrasos = JSON.parse(data);
+}
+
+function exportarXLSX() {
+  const filtroN = filtroNombre.value.trim().toLowerCase();
+  const filtroL = filtroNivel.value;
+  const filtroP = filtroParalelo.value;
+
+  const atrasosFiltrados = atrasos.filter(a => {
+    const est = obtenerEstudiante(a.estudiante);
+    if (!est) return false;
+    const cumpleNombre = est.nombre.toLowerCase().includes(filtroN);
+    const cumpleNivel = filtroL === "" || est.nivel === filtroL;
+    const cumpleParalelo = filtroP === "" || est.paralelo === filtroP;
+    return cumpleNombre && cumpleNivel && cumpleParalelo;
+  });
+
+  if (atrasosFiltrados.length === 0) {
+    alert("No hay atrasos para exportar con los filtros actuales.");
+    return;
+  }
+
+  const datosExportar = atrasosFiltrados.map(a => {
+    const est = obtenerEstudiante(a.estudiante);
+    return {
+      Estudiante: est.nombre,
+      Nivel: est.nivel,
+      Paralelo: est.paralelo,
+      Fecha: a.fecha,
+      Hora: a.hora
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(datosExportar);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Atrasos");
+  XLSX.writeFile(wb, "atrasos_filtrados.xlsx");
+}
+
+// Eventos
+filtroNivelEstudiante.addEventListener("change", () => {
+  cargarEstudiantes(filtroNivelEstudiante.value, filtroParaleloEstudiante.value);
+});
+filtroParaleloEstudiante.addEventListener("change", () => {
+  cargarEstudiantes(filtroNivelEstudiante.value, filtroParaleloEstudiante.value);
+});
+
+formRegistro.addEventListener("submit", e => {
+  e.preventDefault();
+  const estudiante = selectEstudiante.value;
+  const fecha = document.getElementById("fechaAtraso").value;
+  const hora = document.getElementById("horaAtraso").value;
+  if (!estudiante || !fecha || !hora) {
+    alert("Por favor, complete todos los campos.");
+    return;
+  }
+  atrasos.push({ estudiante, fecha, hora });
+  guardarAtrasosLocal();
+  formRegistro.reset();
+  cargarEstudiantes(filtroNivelEstudiante.value, filtroParaleloEstudiante.value);
+  mostrarTabla();
+});
+
+filtroNombre.addEventListener("input", mostrarTabla);
+filtroNivel.addEventListener("change", mostrarTabla);
+filtroParalelo.addEventListener("change", mostrarTabla);
+btnExportarXLSX.addEventListener("click", e => {
+  e.preventDefault();
+  exportarXLSX();
+});
+
+// Inicialización
+const estGuardados = localStorage.getItem("estudiantes");
+if (estGuardados) estudiantes = JSON.parse(estGuardados);
+cargarFiltrosEstudiantes();
+cargarEstudiantes("", "");
+cargarFiltrosBusqueda();
+cargarAtrasosLocal();
+mostrarTabla();
+</script>
+
+</body>
+</html>
